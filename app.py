@@ -55,30 +55,36 @@ def create_word_xml(entries):
     root = etree.Element(f"{{{NS}}}Sources", SelectedStyle="", nsmap={"b": NS})
 
     for entry in entries:
-        title = entry.get("title") or "Untitled"
-        tag = entry.get("ID", title)[:15]
-        author = entry.get("author", "Unknown Author")
-        url = entry.get("url", "")
-        year = entry.get("year", "2025")
-        urldate = entry.get("urldate", "2025-01-01").split("-")
-
-        guid = str(uuid.uuid4())
-        y_accessed, m_accessed, d_accessed = urldate[0], urldate[1] if len(urldate) > 1 else "01", urldate[2] if len(urldate) > 2 else "01"
-
+        tag = entry.get("ID") or (entry.get("title", "Untitled")[:15])
         source = etree.SubElement(root, f"{{{NS}}}Source")
-        etree.SubElement(source, f"{{{NS}}}Tag").text = tag
-        etree.SubElement(source, f"{{{NS}}}SourceType").text = "InternetSite"
-        etree.SubElement(source, f"{{{NS}}}Guid").text = f"{{{guid}}}"
-        etree.SubElement(source, f"{{{NS}}}Title").text = title
-        etree.SubElement(source, f"{{{NS}}}Year").text = year
-        etree.SubElement(source, f"{{{NS}}}YearAccessed").text = y_accessed
-        etree.SubElement(source, f"{{{NS}}}MonthAccessed").text = m_accessed
-        etree.SubElement(source, f"{{{NS}}}DayAccessed").text = d_accessed
-        etree.SubElement(source, f"{{{NS}}}URL").text = url
 
-        author_block = etree.SubElement(source, f"{{{NS}}}Author")
-        corporate = etree.SubElement(author_block, f"{{{NS}}}Author")
-        etree.SubElement(corporate, f"{{{NS}}}Corporate").text = author
+        def add_field(name, value):
+            if value:
+                etree.SubElement(source, f"{{{NS}}}{name}").text = value
+
+        add_field("Tag", tag)
+        add_field("SourceType", "InternetSite")
+        add_field("Guid", f"{{{str(uuid.uuid4())}}}")
+        add_field("Title", entry.get("title"))
+        add_field("Year", entry.get("year"))
+        add_field("Month", entry.get("month"))
+        add_field("Day", entry.get("day"))
+
+        if "urldate" in entry:
+            urldate = entry["urldate"].split("-")
+            if len(urldate) > 0:
+                add_field("YearAccessed", urldate[0])
+            if len(urldate) > 1:
+                add_field("MonthAccessed", urldate[1])
+            if len(urldate) > 2:
+                add_field("DayAccessed", urldate[2])
+
+        add_field("URL", entry.get("url"))
+
+        if "author" in entry:
+            author_block = etree.SubElement(source, f"{{{NS}}}Author")
+            author_nested = etree.SubElement(author_block, f"{{{NS}}}Author")
+            etree.SubElement(author_nested, f"{{{NS}}}Corporate").text = entry["author"]
 
     return etree.tostring(root, pretty_print=True, xml_declaration=True, encoding="UTF-8")
 
@@ -89,13 +95,12 @@ def parse_ris(text):
         if line.startswith('TY  -'):
             entry = {}
         elif line.startswith('ER  -'):
-            if not entry.get('title'):
-                entry['title'] = 'Untitled'
-            entries.append(entry)
+            if entry:
+                entries.append(entry)
         else:
             key = line[:2].strip()
             val = line[6:].strip()
-            if key == 'TI':
+            if key == 'T1':
                 entry['title'] = val
             elif key == 'AU':
                 entry['author'] = entry.get('author', '') + (', ' if entry.get('author') else '') + val
@@ -116,17 +121,18 @@ def parse_mendeley_xml(xml_bytes):
             if title_elem.text:
                 title = title_elem.text
             else:
-                # Join all child text parts
                 title = ''.join(child.text or '' for child in title_elem)
         else:
-            title = 'Untitled'
+            title = None
 
         entry = {
-            'title': title.strip() or 'Untitled',
-            'author': item.findtext('contributors/authors/author', default='Unknown Author'),
-            'year': item.findtext('dates/year', default='2025'),
-            'url': item.findtext('urls/related', default=''),
-            'urldate': item.findtext('dates/accessDate', default='2025-01-01')
+            'title': title.strip() if title else None,
+            'author': item.findtext('contributors/authors/author') or None,
+            'year': item.findtext('dates/year') or None,
+            'month': item.findtext('dates/month') or None,
+            'day': item.findtext('dates/day') or None,
+            'url': item.findtext('urls/related') or None,
+            'urldate': item.findtext('dates/accessDate') or None
         }
         entries.append(entry)
     return entries
